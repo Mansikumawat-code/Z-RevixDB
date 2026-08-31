@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+.zrevix_secret.key
+zrevixdb.sqlite3
+.venv/
+.env
+.DS_Store

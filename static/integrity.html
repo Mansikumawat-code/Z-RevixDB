@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Z-RevixDB | Cryptographic Integrity Monitor</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="hero-header">
+            <div class="header-left">
+                <a href="/dashboard.html" class="logo-badge" aria-label="Z-RevixDB integrity home">
+                    <img src="/static/images/logo.jpeg" alt="Z-RevixDB Logo" class="brand-logo">
+                </a>
+                <nav class="main-nav">
+                    <a href="/dashboard.html" class="nav-link">Control Center</a>
+                    <a href="/records.html" class="nav-link">Records & Lineage</a>
+                    <a href="/timeline.html" class="nav-link">Timeline</a>
+                    <a href="/compare.html" class="nav-link">Diff & Compare</a>
+                    <a href="/search.html" class="nav-link">Search</a>
+                    <a href="/integrity.html" class="nav-link active">Integrity Monitor</a>
+                    <a href="/audit.html" class="nav-link" data-require-role="Admin,Auditor">Audit Trail</a>
+                    <a href="/settings.html" class="nav-link" data-require-role="Admin">Settings</a>
+                </nav>
+            </div>
+            <div class="header-user-panel" id="user-panel">
+                <span id="user-display-name" class="user-name">...</span>
+                <button class="btn btn-sm btn-outline" onclick="handleLogout()">Logout</button>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <main class="dashboard-main">
+            <div class="section-header">
+                <div>
+                    <h2>Cryptographic Integrity Monitor</h2>
+                    <p class="text-subtle">HMAC-SHA256 verification against unauthorized database tampering or bit-rot corruption.</p>
+                </div>
+                <div class="actions-bar">
+                    <button id="scan-btn" class="btn btn-primary" onclick="runIntegrityScan()">
+                        <span id="scan-btn-text">🛡️ Run Integrity Scan</span>
+                        <span id="scan-spinner" class="spinner hidden"></span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Global Health Status Banner -->
+            <div id="health-banner" class="health-banner banner-healthy mb-4">
+                <div class="health-banner-icon" id="health-icon">🛡️</div>
+                <div class="health-banner-text">
+                    <h3 id="health-title">System Status: Cryptographically Intact</h3>
+                    <p id="health-sub" class="text-subtle">All record versions match their canonical server-side HMAC-SHA256 signatures.</p>
+                </div>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="dashboard-grid mb-4">
+                <div class="stat-card">
+                    <div class="stat-card-title">Records Scanned</div>
+                    <div class="stat-card-num text-cyan" id="stat-records">0</div>
+                    <div class="stat-card-sub">Active & soft-deleted records</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-title">Versions Verified</div>
+                    <div class="stat-card-num text-blue" id="stat-versions">0</div>
+                    <div class="stat-card-sub">Historical snapshots audited</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-title">Valid Records</div>
+                    <div class="stat-card-num text-green" id="stat-valid">0</div>
+                    <div class="stat-card-sub">100% cryptographic match</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-title">Compromised / Tampered</div>
+                    <div class="stat-card-num text-danger" id="stat-compromised">0</div>
+                    <div class="stat-card-sub">Signature mismatches</div>
+                </div>
+            </div>
+
+            <!-- Anomaly Details Alert (if any) -->
+            <div id="anomaly-container" class="dashboard-card mb-4 border-danger hidden">
+                <div class="card-header bg-danger-subtle">
+                    <h3 class="text-danger">⚠️ Detected Cryptographic Anomalies</h3>
+                    <span class="badge badge-admin" id="anomaly-count-badge">0 Anomalies</span>
+                </div>
+                <div class="card-body">
+                    <p class="text-subtle mb-3">The following version records do not match their authentic server-side cryptographic signatures. Database records may have been directly altered or corrupted.</p>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Target Record</th>
+                                    <th>Version</th>
+                                    <th>Stored Checksum</th>
+                                    <th>Expected HMAC Signature</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="anomaly-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Per-Record Results Table -->
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <h3>Record-by-Record Verification Log</h3>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-container border-0">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Collection</th>
+                                    <th>Key</th>
+                                    <th>Record ID</th>
+                                    <th>Versions Scanned</th>
+                                    <th>Integrity State</th>
+                                    <th>Audit Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="records-integrity-tbody">
+                                <tr>
+                                    <td colspan="6" class="text-center text-subtle py-4">Click "Run Integrity Scan" above to audit all records.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer class="hero-footer">
+            <p>Z-RevixDB &bull; Zero Third-Party Dependencies &bull; Pure Python & Vanilla Web</p>
+        </footer>
+    </div>
+
+    <script>
+        let currentUser = null;
+
+        async function initIntegrityPage() {
+            try {
+                const meRes = await fetch('/api/me', { credentials: 'include' });
+                if (!meRes.ok) {
+                    window.location.href = '/login.html';
+                    return;
+                }
+                const meData = await meRes.json();
+                currentUser = meData.user;
+                document.getElementById('user-display-name').textContent = currentUser.username;
+                document.querySelectorAll('.nav-link[data-require-role]').forEach(el => {
+                    const allowed = el.dataset.requireRole.split(',');
+                    if (!allowed.includes(currentUser.role)) el.style.display = 'none';
+                });
+
+                if (currentUser.role === 'Viewer') {
+                    const scanBtn = document.getElementById('scan-btn');
+                    if (scanBtn) scanBtn.disabled = true;
+                    document.getElementById('records-integrity-tbody').innerHTML =
+                        '<tr><td colspan="6" class="text-center text-subtle py-4">Integrity scans require Admin, Manager, or Auditor. View-only roles cannot run HMAC verification.</td></tr>';
+                    return;
+                }
+
+                runIntegrityScan();
+            } catch (e) {
+                window.location.href = '/login.html';
+            }
+        }
+
+        async function runIntegrityScan() {
+            const btn = document.getElementById('scan-btn');
+            const btnText = document.getElementById('scan-btn-text');
+            const spinner = document.getElementById('scan-spinner');
+
+            if (btn) btn.disabled = true;
+            if (btnText) btnText.textContent = "Auditing Signatures...";
+            if (spinner) spinner.classList.remove('hidden');
+
+            try {
+                const res = await fetch('/api/integrity/check', { credentials: 'include' });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    alert(data.error || "Failed to run integrity check");
+                    return;
+                }
+
+                renderScanResults(data);
+            } catch (err) {
+                alert("Scan failed: " + err.message);
+            } finally {
+                if (btn && currentUser.role !== 'Viewer') btn.disabled = false;
+                if (btnText) btnText.textContent = "🛡️ Run Integrity Scan";
+                if (spinner) spinner.classList.add('hidden');
+            }
+        }
+
+        function renderScanResults(summary) {
+            document.getElementById('stat-records').textContent = summary.scanned_records;
+            document.getElementById('stat-versions').textContent = summary.total_versions_scanned;
+            document.getElementById('stat-valid').textContent = summary.valid_records;
+            document.getElementById('stat-compromised').textContent = summary.compromised_records;
+
+            const banner = document.getElementById('health-banner');
+            const title = document.getElementById('health-title');
+            const sub = document.getElementById('health-sub');
+            const icon = document.getElementById('health-icon');
+
+            if (summary.is_healthy) {
+                banner.className = "health-banner banner-healthy mb-4";
+                icon.textContent = "🛡️";
+                title.textContent = "System Status: 100% Cryptographically Verified (PASS)";
+                sub.textContent = `All ${summary.total_versions_scanned} version payloads across ${summary.scanned_records} records match their HMAC-SHA256 server signatures.`;
+                document.getElementById('anomaly-container').classList.add('hidden');
+            } else {
+                banner.className = "health-banner banner-compromised mb-4";
+                icon.textContent = "🚨";
+                title.textContent = `CRITICAL: ${summary.compromised_records} Compromised Record(s) Detected (FAIL)`;
+                sub.textContent = "Unauthorized data alterations or database corruption detected. Inspect anomalies below.";
+                
+                // Show anomalies
+                document.getElementById('anomaly-container').classList.remove('hidden');
+                document.getElementById('anomaly-count-badge').textContent = `${summary.anomalies.length} Anomaly(s)`;
+                
+                const anomalyTbody = document.getElementById('anomaly-tbody');
+                anomalyTbody.innerHTML = summary.anomalies.map(a => `
+                    <tr>
+                        <td><strong>${escapeHtml(a.collection || 'Record')} / ${escapeHtml(a.key || a.record_id)}</strong></td>
+                        <td><span class="badge badge-admin">V${a.version_num}</span></td>
+                        <td><code class="text-mono text-danger text-xs">${escapeHtml(a.stored_checksum || '(empty)')}</code></td>
+                        <td><code class="text-mono text-green text-xs">${escapeHtml(a.expected_checksum)}</code></td>
+                        <td><span class="badge badge-admin">TAMPER DETECTED</span></td>
+                    </tr>
+                `).join('');
+            }
+
+            const recTbody = document.getElementById('records-integrity-tbody');
+            if (!summary.records || summary.records.length === 0) {
+                recTbody.innerHTML = `<tr><td colspan="6" class="text-center text-subtle py-4">No records present in storage.</td></tr>`;
+                return;
+            }
+
+            recTbody.innerHTML = summary.records.map(r => `
+                <tr>
+                    <td><strong>${escapeHtml(r.collection)}</strong></td>
+                    <td><code>${escapeHtml(r.key)}</code></td>
+                    <td class="text-mono text-xs text-subtle">${r.record_id}</td>
+                    <td>${r.total_versions} Version${r.total_versions === 1 ? '' : 's'}</td>
+                    <td>
+                        <span class="badge ${r.is_valid ? 'badge-success' : 'badge-admin'}">
+                            ${r.is_valid ? 'PASS (Valid)' : 'FAIL (Compromised)'}
+                        </span>
+                    </td>
+                    <td>
+                        <a href="/records.html?id=${r.record_id}" class="btn btn-xs btn-outline">View Lineage</a>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function handleLogout() {
+            await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+            window.location.href = '/login.html';
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        initIntegrityPage();
+    </script>
+</body>
+</html>

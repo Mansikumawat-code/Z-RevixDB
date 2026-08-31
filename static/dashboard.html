@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Z-RevixDB | Dashboard</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="hero-header">
+            <div class="header-left">
+                <a href="/dashboard.html" class="logo-badge" aria-label="Z-RevixDB dashboard home">
+                    <img src="/static/images/logo.jpeg" alt="Z-RevixDB Logo" class="brand-logo">
+                </a>
+                <nav class="main-nav">
+                    <a href="/dashboard.html" class="nav-link active">Control Center</a>
+                    <a href="/records.html" class="nav-link">Records & Lineage</a>
+                    <a href="/timeline.html" class="nav-link">Timeline</a>
+                    <a href="/compare.html" class="nav-link">Diff & Compare</a>
+                    <a href="/search.html" class="nav-link">Search</a>
+                    <a href="/integrity.html" class="nav-link">Integrity Monitor</a>
+                    <a href="/audit.html" class="nav-link" data-require-role="Admin,Auditor">Audit Trail</a>
+                    <a href="/settings.html" class="nav-link" data-require-role="Admin">Settings</a>
+                </nav>
+            </div>
+            <div class="header-user-panel" id="user-panel">
+                <span id="user-display-name" class="user-name">...</span>
+                <button class="btn btn-sm btn-outline" onclick="handleLogout()">Logout</button>
+            </div>
+        </header>
+
+        <main class="dashboard-main">
+            <div class="dashboard-banner" id="health-banner">
+                <div>
+                    <h2>Welcome back, <span id="banner-username" class="gradient-text">Operator</span></h2>
+                    <p class="text-subtle">Live system overview &mdash; pulled directly from SQLite storage, the HMAC integrity engine, and the audit trail.</p>
+                </div>
+            </div>
+
+            <!-- Live Metrics Row -->
+            <div class="dashboard-grid mb-4" id="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-card-title">Total Records</div>
+                    <div class="stat-card-num" id="stat-records">&hellip;</div>
+                    <div class="stat-card-sub" id="stat-records-sub">&nbsp;</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-title">Total Versions</div>
+                    <div class="stat-card-num" id="stat-versions">&hellip;</div>
+                    <div class="stat-card-sub" id="stat-versions-sub">Across all record lineages</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-title">Storage Size</div>
+                    <div class="stat-card-num" id="stat-storage">&hellip;</div>
+                    <div class="stat-card-sub" id="stat-storage-sub">zrevixdb.sqlite3 (WAL)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-title">Integrity</div>
+                    <div class="stat-card-num" id="stat-integrity">&hellip;</div>
+                    <div class="stat-card-sub" id="stat-integrity-sub">&nbsp;</div>
+                </div>
+            </div>
+
+            <div class="dashboard-grid">
+                <!-- System Health Card -->
+                <div class="dashboard-card">
+                    <div class="card-header">
+                        <h3>System Health</h3>
+                        <span class="badge" id="health-badge">Checking&hellip;</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="info-row">
+                            <span class="info-label">Users:</span>
+                            <span class="info-val" id="info-users">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Active Sessions:</span>
+                            <span class="info-val" id="info-sessions">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Collections:</span>
+                            <span class="info-val" id="info-collections">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Last Scanned Records:</span>
+                            <span class="info-val" id="info-scanned">-</span>
+                        </div>
+                        <div class="btn-group mt-3">
+                            <a href="/integrity.html" class="btn btn-sm btn-secondary">Run Integrity Check &rarr;</a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Identity Card -->
+                <div class="dashboard-card">
+                    <div class="card-header">
+                        <h3>Your Session</h3>
+                        <span class="badge badge-success">Authenticated</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="info-row">
+                            <span class="info-label">User ID:</span>
+                            <span class="info-val" id="profile-id">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Username:</span>
+                            <span class="info-val" id="profile-username">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Role:</span>
+                            <span class="info-val highlight-role" id="profile-role">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Account Created:</span>
+                            <span class="info-val text-mono" id="profile-created">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Activity -->
+            <div class="system-box mt-4">
+                <div class="system-box-header">
+                    <span class="code-title">Recent Activity</span>
+                    <a href="/audit.html" class="btn btn-sm btn-outline" data-require-role="Admin,Auditor">Full Audit Log &rarr;</a>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Actor</th>
+                                <th>Action</th>
+                                <th>Target</th>
+                            </tr>
+                        </thead>
+                        <tbody id="activity-tbody">
+                            <tr><td colspan="4" class="text-center text-subtle py-4">Loading recent activity&hellip;</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+
+        <footer class="hero-footer">
+            <p>Z-RevixDB &bull; Zero Third-Party Dependencies &bull; Pure Python & Vanilla Web</p>
+        </footer>
+    </div>
+
+    <script>
+        let currentUser = null;
+
+        async function initDashboard() {
+            try {
+                const res = await fetch('/api/me', { credentials: 'include' });
+                if (!res.ok) {
+                    window.location.href = '/login.html';
+                    return;
+                }
+                const data = await res.json();
+                currentUser = data.user;
+                renderUserData(currentUser);
+                await loadSummary();
+            } catch (err) {
+                console.error("Auth check failed:", err);
+                window.location.href = '/login.html';
+            }
+        }
+
+        function renderUserData(user) {
+            document.getElementById('user-display-name').textContent = user.username;
+            document.getElementById('banner-username').textContent = user.username;
+            document.getElementById('profile-id').textContent = user.id;
+            document.getElementById('profile-username').textContent = user.username;
+            document.getElementById('profile-role').textContent = user.role;
+            document.getElementById('profile-created').textContent = new Date(user.created_at).toLocaleString();
+
+            document.querySelectorAll('.nav-link[data-require-role], [data-require-role]:not(.nav-link)').forEach(el => {
+                const allowed = el.dataset.requireRole.split(',');
+                if (!allowed.includes(user.role)) el.style.display = 'none';
+            });
+        }
+
+        function fmtBytes(bytes) {
+            if (!bytes) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let i = 0; let n = bytes;
+            while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+            return `${n.toFixed(1)} ${units[i]}`;
+        }
+
+        async function loadSummary() {
+            try {
+                const res = await fetch('/api/dashboard/summary', { credentials: 'include' });
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}`);
+                }
+                const s = await res.json();
+
+                document.getElementById('stat-records').textContent = s.total_records;
+                document.getElementById('stat-records-sub').textContent =
+                    `${s.active_records} active across ${s.total_collections} collection(s)`;
+
+                document.getElementById('stat-versions').textContent = s.total_versions;
+
+                document.getElementById('stat-storage').textContent = fmtBytes(s.storage_bytes);
+
+                document.getElementById('stat-integrity').textContent = `${s.integrity_pct}%`;
+                document.getElementById('stat-integrity-sub').textContent =
+                    `${s.integrity_valid}/${s.integrity_scanned} records verified valid`;
+
+                document.getElementById('info-users').textContent = s.total_users;
+                document.getElementById('info-sessions').textContent = s.active_sessions;
+                document.getElementById('info-collections').textContent = s.total_collections;
+                document.getElementById('info-scanned').textContent = s.integrity_scanned;
+
+                const healthBadge = document.getElementById('health-badge');
+                const banner = document.getElementById('health-banner');
+                if (s.system_health === 'Healthy') {
+                    healthBadge.textContent = 'Healthy';
+                    healthBadge.className = 'badge badge-success';
+                } else {
+                    healthBadge.textContent = s.system_health;
+                    healthBadge.className = 'badge badge-admin';
+                    banner.classList.add('banner-compromised');
+                }
+
+                const tbody = document.getElementById('activity-tbody');
+                if (!s.recent_activity || s.recent_activity.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-subtle py-4">No activity recorded yet.</td></tr>';
+                } else {
+                    tbody.innerHTML = s.recent_activity.map(a => `
+                        <tr>
+                            <td class="text-mono">${new Date(a.created_at).toLocaleString()}</td>
+                            <td>${escHtmlLocal(a.user || 'System')}</td>
+                            <td><span class="badge badge-cyan">${escHtmlLocal(a.event_type)}</span></td>
+                            <td class="text-mono">${a.record_id ? escHtmlLocal(a.target_type + ':' + a.record_id) : '-'}</td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (err) {
+                console.error("Failed to load dashboard summary:", err);
+                document.getElementById('activity-tbody').innerHTML =
+                    '<tr><td colspan="4" class="text-center text-subtle py-4">Failed to load live data.</td></tr>';
+            }
+        }
+
+        function escHtmlLocal(s) {
+            if (s == null) return '';
+            return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        async function handleLogout() {
+            try {
+                await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+            } catch (err) {
+                console.error("Logout error:", err);
+            } finally {
+                window.location.href = '/login.html';
+            }
+        }
+
+        initDashboard();
+    </script>
+</body>
+</html>

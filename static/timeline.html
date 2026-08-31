@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Z-RevixDB | Version Timeline</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="hero-header">
+            <div class="header-left">
+                <a href="/dashboard.html" class="logo-badge" aria-label="Z-RevixDB timeline home">
+                    <img src="/static/images/logo.jpeg" alt="Z-RevixDB Logo" class="brand-logo">
+                </a>
+                <nav class="main-nav">
+                    <a href="/dashboard.html" class="nav-link">Control Center</a>
+                    <a href="/records.html" class="nav-link">Records &amp; Lineage</a>
+                    <a href="/timeline.html" class="nav-link active">Timeline</a>
+                    <a href="/compare.html" class="nav-link">Diff &amp; Compare</a>
+                    <a href="/search.html" class="nav-link">Search</a>
+                    <a href="/integrity.html" class="nav-link">Integrity Monitor</a>
+                    <a href="/audit.html" class="nav-link" data-require-role="Admin,Auditor">Audit Trail</a>
+                    <a href="/settings.html" class="nav-link" data-require-role="Admin">Settings</a>
+                </nav>
+            </div>
+            <div class="header-user-panel" id="user-panel">
+                <span id="user-display-name" class="user-name">...</span>
+                <button class="btn btn-sm btn-outline" onclick="handleLogout()">Logout</button>
+            </div>
+        </header>
+
+        <main class="dashboard-main">
+            <div class="section-header">
+                <div>
+                    <h2>Version Timeline</h2>
+                    <p class="text-subtle">Visual lineage of every commit for a record &mdash; time travel, integrity status, and one-click restore.</p>
+                </div>
+                <div class="actions-bar">
+                    <select id="record-picker" class="role-select" style="min-width:280px;" onchange="onRecordPicked()">
+                        <option value="">Select a record&hellip;</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="page-alert" class="alert-box hidden"></div>
+
+            <!-- Empty state -->
+            <div id="empty-state" class="dashboard-card">
+                <div class="timeline-empty-state">
+                    <div class="no-results-icon">🕓</div>
+                    <h3>No record selected</h3>
+                    <p class="text-subtle">Pick a record above to see its full version lineage as a timeline.</p>
+                </div>
+            </div>
+
+            <!-- Timeline view (hidden until a record is picked) -->
+            <div id="timeline-view" class="hidden">
+                <div class="dashboard-card mb-4">
+                    <div class="card-header">
+                        <h3 id="tl-record-title">-</h3>
+                        <span class="badge badge-cyan" id="tl-version-count">0 versions</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="timeline-scroll">
+                            <div class="timeline-track" id="timeline-track"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Selected version detail -->
+                <div class="dashboard-grid">
+                    <div class="dashboard-card">
+                        <div class="card-header">
+                            <h3>Version Detail</h3>
+                            <span class="badge" id="detail-integrity-badge">-</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="info-row">
+                                <span class="info-label">Version:</span>
+                                <span class="info-val" id="detail-version">-</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Author:</span>
+                                <span class="info-val" id="detail-author">-</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Timestamp:</span>
+                                <span class="info-val text-mono" id="detail-timestamp">-</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Commit Message:</span>
+                                <span class="info-val" id="detail-commit-msg">-</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Checksum (HMAC-SHA256):</span>
+                                <span class="info-val text-mono" id="detail-checksum" style="font-size:0.7rem; word-break:break-all;">-</span>
+                            </div>
+                            <div class="btn-group mt-3" id="restore-btn-wrap">
+                                <button class="btn btn-secondary" id="restore-btn" onclick="restoreSelectedVersion()">Restore this version &rarr;</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card">
+                        <div class="card-header">
+                            <h3>Reconstructed State</h3>
+                        </div>
+                        <div class="card-body">
+                            <pre class="json-code-box text-mono" id="detail-json">Select a node on the timeline&hellip;</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let currentUser = null;
+        let currentRecordId = null;
+        let currentHistory = [];
+        let currentAnomalyVersions = new Set();
+        let selectedVersionNum = null;
+
+        async function initPage() {
+            try {
+                const meRes = await fetch('/api/me', { credentials: 'include' });
+                if (!meRes.ok) { window.location.href = '/login.html'; return; }
+                const meData = await meRes.json();
+                currentUser = meData.user;
+                renderUserData(currentUser);
+                await loadRecordPicker();
+            } catch (err) {
+                console.error(err);
+                window.location.href = '/login.html';
+            }
+        }
+
+        function renderUserData(user) {
+            document.getElementById('user-display-name').textContent = user.username;
+
+
+            document.querySelectorAll('.nav-link[data-require-role]').forEach(el => {
+                const allowed = el.dataset.requireRole.split(',');
+                if (!allowed.includes(user.role)) el.style.display = 'none';
+            });
+
+            const canRestore = user.role === 'Admin' || user.role === 'Manager';
+            document.getElementById('restore-btn-wrap').style.display = canRestore ? 'block' : 'none';
+        }
+
+        function showAlert(msg, type) {
+            const el = document.getElementById('page-alert');
+            el.textContent = msg;
+            el.className = `alert-box alert-${type}`;
+        }
+
+        async function loadRecordPicker() {
+            const res = await fetch('/api/records', { credentials: 'include' });
+            const data = await res.json();
+            const picker = document.getElementById('record-picker');
+            (data.records || []).forEach(r => {
+                const opt = document.createElement('option');
+                opt.value = r.id;
+                opt.textContent = `${r.collection} / ${r.key} (V${r.version_num || 1})`;
+                picker.appendChild(opt);
+            });
+
+            const params = new URLSearchParams(window.location.search);
+            const preselect = params.get('record_id');
+            if (preselect) {
+                picker.value = preselect;
+                onRecordPicked();
+            }
+        }
+
+        async function onRecordPicked() {
+            const id = document.getElementById('record-picker').value;
+            if (!id) {
+                document.getElementById('empty-state').classList.remove('hidden');
+                document.getElementById('timeline-view').classList.add('hidden');
+                return;
+            }
+            currentRecordId = id;
+            await loadTimeline(id);
+        }
+
+        async function loadTimeline(recordId) {
+            document.getElementById('empty-state').classList.add('hidden');
+            document.getElementById('timeline-view').classList.remove('hidden');
+
+            const [recRes, histRes] = await Promise.all([
+                fetch(`/api/records/${recordId}`, { credentials: 'include' }),
+                fetch(`/api/records/${recordId}/history`, { credentials: 'include' }),
+            ]);
+
+            if (!recRes.ok || !histRes.ok) {
+                showAlert('Failed to load record timeline.', 'danger');
+                return;
+            }
+
+            const rec = await recRes.json();
+            const hist = await histRes.json();
+            currentHistory = hist.history || hist.versions || [];
+
+            document.getElementById('tl-record-title').textContent = `${rec.collection} / ${rec.key}`;
+            document.getElementById('tl-version-count').textContent =
+                `${currentHistory.length} version${currentHistory.length === 1 ? '' : 's'}`;
+
+            // Best-effort integrity overlay (Admin/Manager only endpoint; ignore 403 gracefully)
+            currentAnomalyVersions = new Set();
+            try {
+                const intRes = await fetch(`/api/integrity/check?record_id=${recordId}`, { credentials: 'include' });
+                if (intRes.ok) {
+                    const intData = await intRes.json();
+                    (intData.anomalies || []).forEach(a => currentAnomalyVersions.add(a.version_num));
+                }
+            } catch (e) { /* Viewer/Auditor role - integrity scan not permitted, skip overlay */ }
+
+            renderTimelineTrack();
+
+            if (currentHistory.length > 0) {
+                selectVersion(currentHistory[currentHistory.length - 1].version_num);
+            }
+        }
+
+        function renderTimelineTrack() {
+            const track = document.getElementById('timeline-track');
+            track.innerHTML = currentHistory.map(v => {
+                const isRestore = (v.commit_message || '').toLowerCase().includes('restored');
+                const isDeleted = (v.commit_message || '').toLowerCase().includes('delete');
+                const isInvalid = currentAnomalyVersions.has(v.version_num);
+                const classes = ['timeline-node'];
+                if (v.version_num === selectedVersionNum) classes.push('is-selected');
+                if (isRestore) classes.push('is-restore');
+                if (isDeleted) classes.push('is-deleted');
+                if (isInvalid) classes.push('is-invalid');
+
+                const dotSymbol = isDeleted ? '🗑' : (isRestore ? '↺' : `V${v.version_num}`);
+                const integrityDot = currentAnomalyVersions.size > 0 || isInvalid
+                    ? `<span class="timeline-integrity-dot ${isInvalid ? 'bad' : 'ok'}"></span>${isInvalid ? 'Tampered' : 'Verified'}`
+                    : '';
+
+                return `
+                    <div class="${classes.join(' ')}" onclick="selectVersion(${v.version_num})">
+                        <div class="timeline-dot">${dotSymbol}</div>
+                        <div class="timeline-label">
+                            <span class="t-author">${escapeHtml(v.author_username)}</span>
+                            ${new Date(v.created_at).toLocaleDateString()}<br>
+                            ${new Date(v.created_at).toLocaleTimeString()}<br>
+                            ${integrityDot}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function selectVersion(versionNum) {
+            selectedVersionNum = versionNum;
+            renderTimelineTrack();
+
+            const meta = currentHistory.find(v => v.version_num === versionNum);
+            document.getElementById('detail-version').textContent = `V${versionNum}`;
+            document.getElementById('detail-author').textContent = meta ? meta.author_username : '-';
+            document.getElementById('detail-timestamp').textContent = meta ? new Date(meta.created_at).toLocaleString() : '-';
+            document.getElementById('detail-commit-msg').textContent = meta ? (meta.commit_message || '-') : '-';
+            document.getElementById('detail-checksum').textContent = meta ? meta.checksum : '-';
+
+            const badge = document.getElementById('detail-integrity-badge');
+            if (currentAnomalyVersions.has(versionNum)) {
+                badge.textContent = 'TAMPERED';
+                badge.className = 'badge badge-admin';
+            } else if (currentAnomalyVersions.size > 0 || currentUser.role === 'Admin' || currentUser.role === 'Manager') {
+                badge.textContent = 'VERIFIED';
+                badge.className = 'badge badge-success';
+            } else {
+                badge.textContent = 'N/A';
+                badge.className = 'badge badge-role';
+            }
+
+            document.getElementById('detail-json').textContent = 'Loading reconstructed state...';
+            try {
+                if (!meta) throw new Error('Version metadata not found');
+                const res = await fetch(`/api/records/${currentRecordId}/at?timestamp=${encodeURIComponent(meta.created_at)}`, { credentials: 'include' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+                document.getElementById('detail-json').textContent = JSON.stringify(data.data || data, null, 2);
+            } catch (err) {
+                document.getElementById('detail-json').textContent = 'Failed to load state: ' + err.message;
+            }
+        }
+
+        async function restoreSelectedVersion() {
+            if (!selectedVersionNum || !currentRecordId) return;
+            if (!confirm(`Restore V${selectedVersionNum}? This creates a NEW version on top of history — nothing is deleted.`)) return;
+
+            try {
+                const res = await fetch(`/api/records/${currentRecordId}/restore`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ version_num: selectedVersionNum }),
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showAlert(`Restored V${selectedVersionNum} as new version V${data.version_num}.`, 'success');
+                    await loadTimeline(currentRecordId);
+                } else {
+                    showAlert(data.error || 'Restore failed.', 'danger');
+                }
+            } catch (err) {
+                showAlert('Error: ' + err.message, 'danger');
+            }
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        async function handleLogout() {
+            await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+            window.location.href = '/login.html';
+        }
+
+        initPage();
+    </script>
+</body>
+</html>

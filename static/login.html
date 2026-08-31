@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Z-RevixDB | Login</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="auth-wrapper">
+        <div class="auth-card">
+            <div class="auth-header">
+                <div class="logo-badge" aria-label="Z-RevixDB brand">
+                    <img src="/static/images/logo.jpeg" alt="Z-RevixDB Logo" class="brand-logo">
+                </div>
+                <p class="auth-subtitle">Zero-Dependency Enterprise Data Versioning</p>
+            </div>
+
+            <div id="alert-box" class="alert-box hidden"></div>
+
+            <form id="login-form" class="auth-form" onsubmit="handleLogin(event)">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input 
+                        type="text" 
+                        id="username" 
+                        name="username" 
+                        class="form-input" 
+                        placeholder="Enter username (e.g. admin)" 
+                        required 
+                        autocomplete="username"
+                        autofocus
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input 
+                        type="password" 
+                        id="password" 
+                        name="password" 
+                        class="form-input" 
+                        placeholder="Enter password" 
+                        required 
+                        autocomplete="current-password"
+                    >
+                </div>
+
+                <button type="submit" id="submit-btn" class="btn btn-primary btn-block">
+                    <span id="btn-text">Authenticate</span>
+                    <span id="btn-spinner" class="spinner hidden"></span>
+                </button>
+            </form>
+
+            <div class="auth-footer">
+                <p class="security-note">
+                    🔒 Protected with PBKDF2-HMAC-SHA256 & HttpOnly Sessions
+                </p>
+                <div class="auth-links">
+                    <a href="/" class="link-subtle">&larr; Back to Landing Page</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function checkExistingSession() {
+            try {
+                const res = await fetch('/api/me', { credentials: 'include' });
+                if (res.ok) {
+                    window.location.href = '/dashboard.html';
+                }
+            } catch (err) {
+                console.error("Session check error", err);
+            }
+        }
+        checkExistingSession();
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const alertBox = document.getElementById('alert-box');
+            const submitBtn = document.getElementById('submit-btn');
+            const btnText = document.getElementById('btn-text');
+            const btnSpinner = document.getElementById('btn-spinner');
+
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+
+            alertBox.classList.add('hidden');
+            submitBtn.disabled = true;
+            btnText.textContent = "Verifying...";
+            btnSpinner.classList.remove('hidden');
+
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password }),
+                    credentials: 'include'
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    alertBox.className = "alert-box alert-success";
+                    alertBox.textContent = `Login successful! Welcome, ${data.user.username} (${data.user.role}). Redirecting...`;
+                    alertBox.classList.remove('hidden');
+                    setTimeout(() => {
+                        window.location.href = '/dashboard.html';
+                    }, 800);
+                } else {
+                    alertBox.className = "alert-box alert-danger";
+                    alertBox.textContent = data.error || "Authentication failed.";
+                    alertBox.classList.remove('hidden');
+                    submitBtn.disabled = false;
+                    btnText.textContent = "Authenticate";
+                    btnSpinner.classList.add('hidden');
+                }
+            } catch (err) {
+                alertBox.className = "alert-box alert-danger";
+                alertBox.textContent = "Network error: Unable to connect to Z-RevixDB server.";
+                alertBox.classList.remove('hidden');
+                submitBtn.disabled = false;
+                btnText.textContent = "Authenticate";
+                btnSpinner.classList.add('hidden');
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,2 @@
+# Z-RevixDB: Zero Third-Party Runtime Dependencies
+# Everything runs exclusively on Python 3 Standard Library.

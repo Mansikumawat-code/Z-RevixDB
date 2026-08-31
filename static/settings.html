@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Z-RevixDB | Settings</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="hero-header">
+            <div class="header-left">
+                <a href="/dashboard.html" class="logo-badge" aria-label="Z-RevixDB settings home">
+                    <img src="/static/images/logo.jpeg" alt="Z-RevixDB Logo" class="brand-logo">
+                </a>
+                <nav class="main-nav">
+                    <a href="/dashboard.html" class="nav-link">Control Center</a>
+                    <a href="/records.html" class="nav-link">Records &amp; Lineage</a>
+                    <a href="/timeline.html" class="nav-link">Timeline</a>
+                    <a href="/compare.html" class="nav-link">Diff &amp; Compare</a>
+                    <a href="/search.html" class="nav-link">Search</a>
+                    <a href="/integrity.html" class="nav-link">Integrity Monitor</a>
+                    <a href="/audit.html" class="nav-link" data-require-role="Admin,Auditor">Audit Trail</a>
+                    <a href="/settings.html" class="nav-link active" data-require-role="Admin">Settings</a>
+                </nav>
+            </div>
+            <div class="header-user-panel" id="user-panel">
+                <span id="user-display-name" class="user-name">...</span>
+                <button class="btn btn-sm btn-outline" onclick="handleLogout()">Logout</button>
+            </div>
+        </header>
+
+        <main class="dashboard-main">
+            <div id="access-denied" class="dashboard-card hidden">
+                <div class="timeline-empty-state">
+                    <div class="no-results-icon">🔒</div>
+                    <h3>Admin access required</h3>
+                    <p class="text-subtle">User management is restricted to the Admin role. Server-side RBAC blocks this regardless of what the UI shows.</p>
+                </div>
+            </div>
+
+            <div id="settings-body" class="hidden">
+                <div class="section-header">
+                    <div>
+                        <h2>User &amp; Role Management</h2>
+                        <p class="text-subtle">Create accounts and adjust RBAC roles. Enforcement happens server-side via <code>require_role()</code> on every route.</p>
+                    </div>
+                </div>
+
+                <div id="page-alert" class="alert-box hidden"></div>
+
+                <!-- Create user form -->
+                <div class="dashboard-card mb-4">
+                    <div class="card-header">
+                        <h3>Create New User</h3>
+                    </div>
+                    <div class="card-body">
+                        <form id="create-user-form" onsubmit="handleCreateUser(event)">
+                            <div class="settings-form-grid">
+                                <div class="form-group">
+                                    <label>Username</label>
+                                    <input type="text" id="new-username" class="form-input" required minlength="3" autocomplete="off">
+                                </div>
+                                <div class="form-group">
+                                    <label>Password</label>
+                                    <input type="password" id="new-password" class="form-input" required minlength="4" autocomplete="new-password">
+                                </div>
+                                <div class="form-group">
+                                    <label>Role</label>
+                                    <select id="new-role" class="role-select">
+                                        <option value="Viewer">Viewer</option>
+                                        <option value="Manager">Manager</option>
+                                        <option value="Auditor">Auditor</option>
+                                        <option value="Admin">Admin</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary">+ Create User</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Users table -->
+                <div class="table-container">
+                    <table class="data-table" id="users-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Username</th>
+                                <th>Role</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-tbody">
+                            <tr><td colspan="5" class="text-center text-subtle py-4">Loading users&hellip;</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let currentUser = null;
+
+        async function initPage() {
+            try {
+                const meRes = await fetch('/api/me', { credentials: 'include' });
+                if (!meRes.ok) { window.location.href = '/login.html'; return; }
+                const meData = await meRes.json();
+                currentUser = meData.user;
+                renderUserData(currentUser);
+
+                if (currentUser.role !== 'Admin') {
+                    document.getElementById('access-denied').classList.remove('hidden');
+                    return;
+                }
+                document.getElementById('settings-body').classList.remove('hidden');
+                await loadUsers();
+            } catch (err) {
+                console.error(err);
+                window.location.href = '/login.html';
+            }
+        }
+
+        function renderUserData(user) {
+            document.getElementById('user-display-name').textContent = user.username;
+
+
+            document.querySelectorAll('.nav-link[data-require-role]').forEach(el => {
+                const allowed = el.dataset.requireRole.split(',');
+                if (!allowed.includes(user.role)) el.style.display = 'none';
+            });
+        }
+
+        function showAlert(msg, type) {
+            const el = document.getElementById('page-alert');
+            el.textContent = msg;
+            el.className = `alert-box alert-${type}`;
+        }
+
+        async function loadUsers() {
+            const res = await fetch('/api/users', { credentials: 'include' });
+            const tbody = document.getElementById('users-tbody');
+
+            if (!res.ok) {
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center text-subtle py-4">Server rejected this request (${res.status}) &mdash; RBAC enforced.</td></tr>`;
+                return;
+            }
+
+            const data = await res.json();
+            const users = data.users || [];
+
+            if (users.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-subtle py-4">No users found.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = users.map(u => `
+                <tr>
+                    <td class="text-mono">${u.id}</td>
+                    <td>${escapeHtml(u.username)}</td>
+                    <td><span class="badge badge-${u.role.toLowerCase()}">${escapeHtml(u.role)}</span></td>
+                    <td class="text-mono">${new Date(u.created_at).toLocaleString()}</td>
+                    <td>
+                        <div class="inline-edit-row">
+                            <select class="role-select" id="role-select-${u.id}">
+                                ${['Viewer', 'Manager', 'Auditor', 'Admin'].map(r =>
+                                    `<option value="${r}" ${r === u.role ? 'selected' : ''}>${r}</option>`
+                                ).join('')}
+                            </select>
+                            <button class="btn btn-sm btn-secondary" onclick="handleUpdateRole(${u.id})">Save</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function handleCreateUser(evt) {
+            evt.preventDefault();
+            const username = document.getElementById('new-username').value.trim();
+            const password = document.getElementById('new-password').value;
+            const role = document.getElementById('new-role').value;
+
+            try {
+                const res = await fetch('/api/users', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password, role }),
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showAlert(`User "${data.user.username}" created with role ${data.user.role}.`, 'success');
+                    document.getElementById('create-user-form').reset();
+                    await loadUsers();
+                } else {
+                    showAlert(data.error || 'Failed to create user.', 'danger');
+                }
+            } catch (err) {
+                showAlert('Error: ' + err.message, 'danger');
+            }
+        }
+
+        async function handleUpdateRole(userId) {
+            const newRole = document.getElementById(`role-select-${userId}`).value;
+            try {
+                const res = await fetch(`/api/users/${userId}`, {
+                    method: 'PUT',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ role: newRole }),
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showAlert(`Role updated to ${data.user.role}.`, 'success');
+                    await loadUsers();
+                } else {
+                    showAlert(data.error || 'Failed to update role.', 'danger');
+                }
+            } catch (err) {
+                showAlert('Error: ' + err.message, 'danger');
+            }
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        async function handleLogout() {
+            await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+            window.location.href = '/login.html';
+        }
+
+        initPage();
+    </script>
+</body>
+</html>

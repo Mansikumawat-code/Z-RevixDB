@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Z-RevixDB | Version Comparison & Diff</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="hero-header">
+            <div class="header-left">
+                <a href="/dashboard.html" class="logo-badge" aria-label="Z-RevixDB compare home">
+                    <img src="/static/images/logo.jpeg" alt="Z-RevixDB Logo" class="brand-logo">
+                </a>
+                <nav class="main-nav">
+                    <a href="/dashboard.html" class="nav-link">Control Center</a>
+                    <a href="/records.html" class="nav-link">Records & Lineage</a>
+                    <a href="/timeline.html" class="nav-link">Timeline</a>
+                    <a href="/compare.html" class="nav-link active">Diff & Compare</a>
+                    <a href="/search.html" class="nav-link">Search</a>
+                    <a href="/integrity.html" class="nav-link">Integrity Monitor</a>
+                    <a href="/audit.html" class="nav-link" data-require-role="Admin,Auditor">Audit Trail</a>
+                    <a href="/settings.html" class="nav-link" data-require-role="Admin">Settings</a>
+                </nav>
+            </div>
+            <div class="header-user-panel" id="user-panel">
+                <span id="user-display-name" class="user-name">...</span>
+                <button class="btn btn-sm btn-outline" onclick="handleLogout()">Logout</button>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <main class="dashboard-main">
+            <div class="section-header">
+                <div>
+                    <h2>Structural Version Comparison</h2>
+                    <p class="text-subtle">Field-level diff engine comparing historical snapshots (added, removed, changed, unchanged).</p>
+                </div>
+            </div>
+
+            <!-- Compare Selector Card -->
+            <div class="dashboard-card mb-4">
+                <div class="card-header">
+                    <h3>Select Record & Version Range</h3>
+                </div>
+                <div class="card-body">
+                    <div class="compare-selector-grid">
+                        <div class="form-group">
+                            <label for="select-record">Select Target Record</label>
+                            <select id="select-record" class="form-input" onchange="handleRecordChange()">
+                                <option value="">-- Choose a record --</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="select-v1">Base Version (From)</label>
+                            <select id="select-v1" class="form-input">
+                                <option value="">--</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="select-v2">Target Version (To)</label>
+                            <select id="select-v2" class="form-input">
+                                <option value="">--</option>
+                            </select>
+                        </div>
+                        <div class="form-group compare-btn-col">
+                            <button class="btn btn-primary btn-block" onclick="runComparison()">
+                                ⚡ Run Field Diff
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Diff Output Area -->
+            <div id="diff-results" class="hidden">
+                <!-- Summary Stats Bar -->
+                <div class="diff-summary-bar">
+                    <div class="stat-pill stat-added"><span id="count-added">0</span> Added</div>
+                    <div class="stat-pill stat-removed"><span id="count-removed">0</span> Removed</div>
+                    <div class="stat-pill stat-changed"><span id="count-changed">0</span> Changed</div>
+                    <div class="stat-pill stat-unchanged"><span id="count-unchanged">0</span> Unchanged</div>
+                </div>
+
+                <!-- Version Metadata Headers -->
+                <div class="diff-meta-grid">
+                    <div class="diff-meta-card">
+                        <span class="badge badge-cyan" id="meta-v1-tag">V1</span>
+                        <div class="meta-commit-msg" id="meta-v1-msg">...</div>
+                        <div class="text-xs text-subtle" id="meta-v1-sub">...</div>
+                    </div>
+                    <div class="diff-arrow">&rarr;</div>
+                    <div class="diff-meta-card">
+                        <span class="badge badge-success" id="meta-v2-tag">V2</span>
+                        <div class="meta-commit-msg" id="meta-v2-msg">...</div>
+                        <div class="text-xs text-subtle" id="meta-v2-sub">...</div>
+                    </div>
+                </div>
+
+                <!-- Field Diff Table -->
+                <div class="table-container mt-3">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 25%;">JSON Field Path</th>
+                                <th style="width: 15%;">Change Type</th>
+                                <th style="width: 30%;">Base Value (From)</th>
+                                <th style="width: 30%;">Target Value (To)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="diff-tbody">
+                            <!-- Field diff rows injected here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="no-diff-prompt" class="system-box mt-3 text-center py-4">
+                <p class="text-subtle">Select a record and two versions above to compute and visualize field changes.</p>
+            </div>
+        </main>
+
+        <footer class="hero-footer">
+            <p>Z-RevixDB &bull; Zero Third-Party Dependencies &bull; Pure Python & Vanilla Web</p>
+        </footer>
+    </div>
+
+    <script>
+        let allRecords = [];
+        let recordMap = {};
+
+        async function initComparePage() {
+            try {
+                const meRes = await fetch('/api/me', { credentials: 'include' });
+                if (!meRes.ok) {
+                    window.location.href = '/login.html';
+                    return;
+                }
+                const meData = await meRes.json();
+                document.getElementById('user-display-name').textContent = meData.user.username;
+                document.querySelectorAll('.nav-link[data-require-role]').forEach(el => {
+                    const allowed = el.dataset.requireRole.split(',');
+                    if (!allowed.includes(meData.user.role)) el.style.display = 'none';
+                });
+
+                await loadRecordOptions();
+            } catch (e) {
+                window.location.href = '/login.html';
+            }
+        }
+
+        async function loadRecordOptions() {
+            const res = await fetch('/api/records?include_deleted=true', { credentials: 'include' });
+            const data = await res.json();
+            allRecords = data.records || [];
+
+            const select = document.getElementById('select-record');
+            select.innerHTML = '<option value="">-- Choose a record --</option>' + allRecords.map(r => `
+                <option value="${r.id}">${escapeHtml(r.collection)} / ${escapeHtml(r.key)} (Head V${r.version_num})</option>
+            `).join('');
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const preselectId = urlParams.get('id');
+            if (preselectId) {
+                select.value = preselectId;
+                handleRecordChange();
+            }
+        }
+
+        async function handleRecordChange() {
+            const recordId = document.getElementById('select-record').value;
+            const v1Select = document.getElementById('select-v1');
+            const v2Select = document.getElementById('select-v2');
+
+            if (!recordId) {
+                v1Select.innerHTML = '<option value="">--</option>';
+                v2Select.innerHTML = '<option value="">--</option>';
+                return;
+            }
+
+            try {
+                const res = await fetch(`/api/records/${recordId}/history`, { credentials: 'include' });
+                const data = await res.json();
+                const history = data.history || [];
+
+                v1Select.innerHTML = history.map(v => `
+                    <option value="${v.version_num}">V${v.version_num} - "${escapeHtml(v.commit_message || 'No msg')}" (${new Date(v.created_at).toLocaleTimeString()})</option>
+                `).join('');
+
+                v2Select.innerHTML = history.map(v => `
+                    <option value="${v.version_num}">V${v.version_num} - "${escapeHtml(v.commit_message || 'No msg')}" (${new Date(v.created_at).toLocaleTimeString()})</option>
+                `).join('');
+
+                // Auto-pick sensible defaults: from V1 to latest Head
+                if (history.length >= 2) {
+                    v1Select.value = history[history.length - 2].version_num;
+                    v2Select.value = history[history.length - 1].version_num;
+                } else if (history.length === 1) {
+                    v1Select.value = history[0].version_num;
+                    v2Select.value = history[0].version_num;
+                }
+            } catch (err) {
+                console.error("Failed to load history:", err);
+            }
+        }
+
+        async function runComparison() {
+            const recordId = document.getElementById('select-record').value;
+            const v1 = document.getElementById('select-v1').value;
+            const v2 = document.getElementById('select-v2').value;
+
+            if (!recordId || !v1 || !v2) {
+                alert("Please select a record and both versions to compare.");
+                return;
+            }
+
+            try {
+                const res = await fetch(`/api/records/${recordId}/compare?from=${v1}&to=${v2}`, { credentials: 'include' });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    alert(data.error || "Failed to compare versions");
+                    return;
+                }
+
+                renderDiffResults(data);
+            } catch (err) {
+                alert("Error: " + err.message);
+            }
+        }
+
+        function renderDiffResults(result) {
+            document.getElementById('no-diff-prompt').classList.add('hidden');
+            document.getElementById('diff-results').classList.remove('hidden');
+
+            document.getElementById('count-added').textContent = result.summary.added_count;
+            document.getElementById('count-removed').textContent = result.summary.removed_count;
+            document.getElementById('count-changed').textContent = result.summary.changed_count;
+            document.getElementById('count-unchanged').textContent = result.summary.unchanged_count;
+
+            document.getElementById('meta-v1-tag').textContent = `Version ${result.v1.version_num}`;
+            document.getElementById('meta-v1-msg').textContent = `"${result.v1.commit_message || 'No message'}"`;
+            document.getElementById('meta-v1-sub').textContent = `By ${result.v1.author} at ${new Date(result.v1.created_at).toLocaleString()}`;
+
+            document.getElementById('meta-v2-tag').textContent = `Version ${result.v2.version_num}`;
+            document.getElementById('meta-v2-msg').textContent = `"${result.v2.commit_message || 'No message'}"`;
+            document.getElementById('meta-v2-sub').textContent = `By ${result.v2.author} at ${new Date(result.v2.created_at).toLocaleString()}`;
+
+            const tbody = document.getElementById('diff-tbody');
+
+            if (!result.diff || result.diff.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center text-subtle py-4">Both version payloads are empty.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = result.diff.map(item => {
+                let badgeClass = "badge-viewer";
+                let rowClass = "diff-row-unchanged";
+                let typeLabel = "UNCHANGED";
+
+                if (item.type === "added") {
+                    badgeClass = "badge-success";
+                    rowClass = "diff-row-added";
+                    typeLabel = "ADDED";
+                } else if (item.type === "removed") {
+                    badgeClass = "badge-admin";
+                    rowClass = "diff-row-removed";
+                    typeLabel = "REMOVED";
+                } else if (item.type === "changed") {
+                    badgeClass = "badge-manager";
+                    rowClass = "diff-row-changed";
+                    typeLabel = "CHANGED";
+                }
+
+                const oldStr = item.old_value !== undefined && item.old_value !== null
+                    ? escapeHtml(JSON.stringify(item.old_value))
+                    : '<span class="text-subtle text-xs">— (None)</span>';
+                const newStr = item.new_value !== undefined && item.new_value !== null
+                    ? escapeHtml(JSON.stringify(item.new_value))
+                    : '<span class="text-subtle text-xs">— (None)</span>';
+
+                return `
+                    <tr class="${rowClass}">
+                        <td><code class="text-mono text-cyan">${escapeHtml(item.field)}</code></td>
+                        <td><span class="badge ${badgeClass}">${typeLabel}</span></td>
+                        <td><div class="diff-val text-mono ${item.type === 'removed' ? 'text-danger line-through' : ''}">${oldStr}</div></td>
+                        <td><div class="diff-val text-mono ${item.type === 'added' ? 'text-green bold' : ''}">${newStr}</div></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function handleLogout() {
+            await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+            window.location.href = '/login.html';
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        initComparePage();
+    </script>
+</body>
+</html>

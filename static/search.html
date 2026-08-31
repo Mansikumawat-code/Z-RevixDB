@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Z-RevixDB | Full-Text Search</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="hero-header">
+            <div class="header-left">
+                <a href="/dashboard.html" class="logo-badge" aria-label="Z-RevixDB search home">
+                    <img src="/static/images/logo.jpeg" alt="Z-RevixDB Logo" class="brand-logo">
+                </a>
+                <nav class="main-nav">
+                    <a href="/dashboard.html" class="nav-link">Control Center</a>
+                    <a href="/records.html" class="nav-link">Records & Lineage</a>
+                    <a href="/timeline.html" class="nav-link">Timeline</a>
+                    <a href="/compare.html" class="nav-link">Diff & Compare</a>
+                    <a href="/search.html" class="nav-link active">Search</a>
+                    <a href="/integrity.html" class="nav-link">Integrity Monitor</a>
+                    <a href="/audit.html" class="nav-link" data-require-role="Admin,Auditor">Audit Trail</a>
+                    <a href="/settings.html" class="nav-link" data-require-role="Admin">Settings</a>
+                </nav>
+            </div>
+            <div class="header-user-panel" id="user-panel">
+                <span id="user-display-name" class="user-name">...</span>
+                <button class="btn btn-sm btn-outline" onclick="handleLogout()">Logout</button>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <main class="dashboard-main">
+            <div class="section-header">
+                <div>
+                    <h2>Zero-Dependency Full-Text Search</h2>
+                    <p class="text-subtle">Inverted index engine with prefix lookups, TF-IDF ranking, and field matching (No Elasticsearch).</p>
+                </div>
+            </div>
+
+            <!-- Search Bar Card -->
+            <div class="dashboard-card mb-4">
+                <div class="card-body">
+                    <form onsubmit="handleSearchSubmit(event)">
+                        <div class="search-bar-grid">
+                            <div class="search-input-wrapper">
+                                <span class="search-icon">🔍</span>
+                                <input 
+                                    type="text" 
+                                    id="search-query" 
+                                    class="form-input search-input" 
+                                    placeholder="Search across all records, keys, field names, and values..." 
+                                    autofocus
+                                >
+                            </div>
+                            <div class="collection-filter-wrapper">
+                                <select id="search-collection" class="form-input">
+                                    <option value="">All Collections</option>
+                                </select>
+                            </div>
+                            <div class="search-btn-wrapper">
+                                <button type="submit" class="btn btn-primary btn-block">
+                                    Search Engine
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Search Results Summary Bar -->
+            <div id="results-header" class="results-header hidden">
+                <div class="results-meta">
+                    <h3>Search Results for <span id="query-echo" class="gradient-text">"..."</span></h3>
+                    <p class="text-subtle" id="results-count-text">Found 0 matching record(s)</p>
+                </div>
+            </div>
+
+            <!-- Results List Container -->
+            <div id="results-container" class="results-list">
+                <!-- Search Result Cards injected here -->
+            </div>
+
+            <!-- Empty Search State Prompt -->
+            <div id="empty-prompt" class="system-box mt-3 text-center py-4">
+                <p class="text-subtle">Enter search keywords above to query records via the in-memory Inverted Index.</p>
+                <p class="text-xs text-subtle mt-1">Supports exact token matches, prefix searches (e.g. <code>postg</code> &rarr; <code>postgresql</code>), and deep nested JSON keys.</p>
+            </div>
+
+            <!-- No Results Found State -->
+            <div id="no-results-box" class="dashboard-card text-center py-4 hidden">
+                <div class="no-results-icon">🔎</div>
+                <h3>No records matched your search query</h3>
+                <p class="text-subtle mt-1">Try broader keywords, partial prefix terms, or clearing collection filters.</p>
+            </div>
+        </main>
+
+        <footer class="hero-footer">
+            <p>Z-RevixDB &bull; Zero Third-Party Dependencies &bull; Pure Python & Vanilla Web</p>
+        </footer>
+    </div>
+
+    <script>
+        let currentUser = null;
+
+        async function initSearchPage() {
+            try {
+                const meRes = await fetch('/api/me', { credentials: 'include' });
+                if (!meRes.ok) {
+                    window.location.href = '/login.html';
+                    return;
+                }
+                const meData = await meRes.json();
+                currentUser = meData.user;
+                document.getElementById('user-display-name').textContent = currentUser.username;
+                document.querySelectorAll('.nav-link[data-require-role]').forEach(el => {
+                    const allowed = el.dataset.requireRole.split(',');
+                    if (!allowed.includes(currentUser.role)) el.style.display = 'none';
+                });
+
+                await loadCollections();
+
+                // Handle prefilled query parameter (e.g. /search.html?q=...)
+                const urlParams = new URLSearchParams(window.location.search);
+                const qParam = urlParams.get('q');
+                if (qParam) {
+                    document.getElementById('search-query').value = qParam;
+                    executeSearch(qParam, urlParams.get('collection'));
+                }
+            } catch (e) {
+                window.location.href = '/login.html';
+            }
+        }
+
+        async function loadCollections() {
+            try {
+                const res = await fetch('/api/records', { credentials: 'include' });
+                const data = await res.json();
+                const records = data.records || [];
+                const collections = Array.from(new Set(records.map(r => r.collection))).sort();
+
+                const select = document.getElementById('search-collection');
+                select.innerHTML = '<option value="">All Collections</option>' + collections.map(c => `
+                    <option value="${escapeHtml(c)}">${escapeHtml(c)}</option>
+                `).join('');
+            } catch (err) {
+                console.error("Failed to load collections:", err);
+            }
+        }
+
+        function handleSearchSubmit(e) {
+            e.preventDefault();
+            const query = document.getElementById('search-query').value.trim();
+            const collection = document.getElementById('search-collection').value;
+            executeSearch(query, collection);
+        }
+
+        async function executeSearch(query, collection) {
+            const resultsContainer = document.getElementById('results-container');
+            const resultsHeader = document.getElementById('results-header');
+            const emptyPrompt = document.getElementById('empty-prompt');
+            const noResultsBox = document.getElementById('no-results-box');
+
+            if (!query) {
+                emptyPrompt.classList.remove('hidden');
+                resultsHeader.classList.add('hidden');
+                noResultsBox.classList.add('hidden');
+                resultsContainer.innerHTML = '';
+                return;
+            }
+
+            emptyPrompt.classList.add('hidden');
+            noResultsBox.classList.add('hidden');
+            resultsHeader.classList.remove('hidden');
+            document.getElementById('query-echo').textContent = `"${query}"`;
+            document.getElementById('results-count-text').textContent = "Searching inverted index...";
+            resultsContainer.innerHTML = '<div class="text-center py-4 text-subtle">Querying inverted index...</div>';
+
+            const params = new URLSearchParams();
+            params.set('q', query);
+            if (collection) params.set('collection', collection);
+
+            try {
+                const res = await fetch(`/api/search?${params.toString()}`, { credentials: 'include' });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    resultsContainer.innerHTML = `<div class="alert-box alert-danger">${data.error || 'Search failed'}</div>`;
+                    return;
+                }
+
+                const results = data.results || [];
+                document.getElementById('results-count-text').textContent = `Found ${results.length} matching record${results.length === 1 ? '' : 's'} in ${data.collection_filter ? data.collection_filter : 'all collections'}`;
+
+                if (results.length === 0) {
+                    noResultsBox.classList.remove('hidden');
+                    resultsContainer.innerHTML = '';
+                    return;
+                }
+
+                resultsContainer.innerHTML = results.map(r => `
+                    <div class="search-result-card">
+                        <div class="result-card-header">
+                            <div class="result-title-group">
+                                <span class="badge badge-cyan">${escapeHtml(r.collection)}</span>
+                                <h3 class="result-key"><code>${escapeHtml(r.key)}</code></h3>
+                                <span class="badge badge-role">Head V${r.version_num}</span>
+                            </div>
+                            <div class="result-score-badge">
+                                <span class="score-label">Relevance Score</span>
+                                <span class="score-val">${r.score}</span>
+                            </div>
+                        </div>
+
+                        <div class="result-match-tags">
+                            <div class="match-tag-row">
+                                <span class="tag-label">Matched Tokens:</span>
+                                ${r.matched_tokens.map(t => `<span class="token-pill">${escapeHtml(t)}</span>`).join('')}
+                            </div>
+                            <div class="match-tag-row">
+                                <span class="tag-label">Matched Fields:</span>
+                                ${r.matched_fields.map(f => `<code class="field-pill">${escapeHtml(f)}</code>`).join('')}
+                            </div>
+                        </div>
+
+                        <div class="result-preview">
+                            <pre class="json-code-box text-mono">${escapeHtml(r.snippet)}</pre>
+                        </div>
+
+                        <div class="result-footer">
+                            <span class="text-xs text-subtle">Record ID: <code>${r.record_id}</code> &bull; Last Updated: ${new Date(r.updated_at).toLocaleString()}</span>
+                            <a href="/records.html?id=${r.record_id}" class="btn btn-sm btn-primary">Inspect Record &rarr;</a>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                resultsContainer.innerHTML = `<div class="alert-box alert-danger">Network error executing search: ${err.message}</div>`;
+            }
+        }
+
+        async function handleLogout() {
+            await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+            window.location.href = '/login.html';
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        initSearchPage();
+    </script>
+</body>
+</html>
