@@ -4,6 +4,7 @@ Enterprise Data Versioning, Time-Travel & Recovery Platform.
 Zero Third-Party Runtime Dependencies.
 """
 
+import os
 import sys
 from zrevixdb.audit import register_audit_routes
 from zrevixdb.auth import register_auth_routes, seed_admin_user
